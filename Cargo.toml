@@ -1,12 +1,12 @@
 [package]
 name = "region-cn"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["bujnlc8 <75124771@qq.com>"]
-description = "A lib to query chinese region by code with trier or search in place."
+description = "A lib to query chinese region by six digit code with trier or search in place."
 repository = "https://github.com/bujnlc8/region-cn"
 license = "MIT"
-keywords = ["region-code"]
+keywords = ["region-code", "chinese-region"]
 exclude = ["data/", "region-code.png"]
 
 [dependencies]
