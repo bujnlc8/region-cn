@@ -1,7 +1,7 @@
 [![Crates.io](https://img.shields.io/crates/v/region-cn?style=flat-square)](https://crates.io/crates/region-cn)
 [![region-cn](https://github.com/bujnlc8/region-cn/actions/workflows/region-cn.yml/badge.svg)](https://github.com/bujnlc8/region-cn/actions/workflows/region-cn.yml)
 
-# 根据 6 位地区代码查询地区名称
+# 根据 中国 6 位行政区划代码查询地区名称
 
 数据来源于[https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html](https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html)，是目前官方最新的数据。
 
