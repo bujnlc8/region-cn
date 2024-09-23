@@ -5,9 +5,9 @@
 
 数据来源于[https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html](https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html)，是目前官方最新的数据。
 
-数据经过压缩处理，可从[./data/region.dat](./data/region.dat)下载。
+数据经过压缩处理，可从[data/region.dat](./data/region.dat)下载。
 
-数据结构如下:
+文件数据结构如下:
 
 ![region-code.png](./region-code.png)
 

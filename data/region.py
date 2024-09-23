@@ -86,7 +86,7 @@ class RegionCtr:
     @staticmethod
     def bytes_to_region_code(code_bytes: bytes) -> str:
         if len(code_bytes) != 3:
-            raise ValueError("code_bytes's length must be 3")
+            raise ValueError("bytes's length must be 3")
         res = 0
         for i in range(2, -1, -1):
             res += code_bytes[2 - i] * 2 ** (8 * i)
