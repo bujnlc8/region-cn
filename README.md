@@ -7,6 +7,10 @@
 
 数据经过压缩处理，可从[./data/region.dat](./data/region.dat)下载。
 
+数据结构如下:
+
+![region-code.png](./region-code.png)
+
 提供 2 种搜索方式，前缀树和文件搜索。
 
 ## 使用
