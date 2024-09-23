@@ -1,0 +1,12 @@
+[package]
+name = "region-cn"
+version = "0.1.0"
+edition = "2021"
+authors = ["bujnlc8 <75124771@qq.com>"]
+description = "A lib to query chinese region by code with trier or search in place."
+repository = "https://github.com/bujnlc8/region-cn"
+license = "MIT"
+keywords = ["region-code"]
+
+[dependencies]
+anyhow = "1.0.89"
