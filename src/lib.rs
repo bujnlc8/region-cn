@@ -4,6 +4,10 @@
 基本用法:
 
 ```
+use std::path::PathBuf;
+
+use region_cn::region::Region;
+
 let mut region = Region::new(PathBuf::from("data/region.dat"));
 // 直接在region.dat中搜索
 match region.search_with_data("530925") {
