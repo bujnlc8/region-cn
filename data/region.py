@@ -16,54 +16,50 @@ class RegionType(Enum):
     @property
     def label(self) -> str:
         if self == RegionType.province:
-            return "省"
+            return '省'
         elif self == RegionType.z_province:
-            return "自治区"
+            return '自治区'
         elif self == RegionType.city:
-            return "市"
+            return '市'
         elif self == RegionType.district:
-            return "区"
+            return '区'
         elif self == RegionType.county:
-            return "县"
+            return '县'
         elif self == RegionType.z_county:
-            return "自治县"
+            return '自治县'
         elif self == RegionType.qi:
-            return "旗"
+            return '旗'
         elif self == RegionType.meng:
-            return "盟"
+            return '盟'
         elif self == RegionType.z_city:
-            return "州"
-        return ""
+            return '州'
+        return ''
 
     @staticmethod
-    def name_classifiction(name: str) -> tuple[str, "RegionType"]:
-        if name.endswith("自治区"):
+    def name_classifiction(name: str) -> tuple[str, 'RegionType']:
+        if name.endswith('自治区'):
             return name[:-3], RegionType.z_province
-        elif name.endswith("自治县"):
+        elif name.endswith('自治县'):
             return name[:-3], RegionType.z_county
-        elif name.endswith("省"):
+        elif name.endswith('省'):
             return name[:-1], RegionType.province
-        elif name.endswith("市"):
+        elif name.endswith('市'):
             return name[:-1], RegionType.city
-        elif name.endswith("县"):
+        elif name.endswith('县'):
             return name[:-1], RegionType.county
-        elif name.endswith("区"):
+        elif name.endswith('区'):
             return name[:-1], RegionType.district
-        elif name.endswith("盟"):
+        elif name.endswith('盟'):
             return name[:-1], RegionType.meng
-        elif name.endswith("州"):
+        elif name.endswith('州'):
             return name[:-1], RegionType.z_city
-        elif name.endswith("旗"):
+        elif name.endswith('旗'):
             return name[:-1], RegionType.qi
         return name, RegionType.other
 
 
-# 记录分割字符
-SPLIT_CHAR = "¦"
-
-
 class RegionCtr:
-    def __init__(self, file_name: str = "region.dat") -> None:
+    def __init__(self, file_name: str = 'region.dat') -> None:
         self.file_name = file_name
 
     @staticmethod
@@ -92,8 +88,8 @@ class RegionCtr:
             res += code_bytes[2 - i] * 2 ** (8 * i)
         return str(res)
 
-    def pack(self, data_list: list[tuple[str, str]], version: int = 202301) -> bool:
-        with open(self.file_name, "wb") as f:
+    def pack(self, data_list: list[tuple[str, str, str]] | list[tuple[str, str]], version: int = 202301) -> bool:
+        with open(self.file_name, 'wb') as f:
             # 写32位版本号
             f.write(version.to_bytes(length=4))
             # 先跳过偏移
@@ -102,22 +98,35 @@ class RegionCtr:
             index_offset = 8
             offset_map: dict[int, int] = {}
             for data in data_list:
-                code, name = data
+                discard_year = ''
+                if len(data) == 3:
+                    code, name, discard_year = data
+                else:
+                    code, name = data
                 code_2 = int(code[:2])
                 if code_2 not in offset_map:
                     offset_map[code_2] = index_offset
                 code_bytes = self.region_code_to_bytes(code)
-                name, t = RegionType.name_classifiction(name.replace("*", ""))
+                name, region_type = RegionType.name_classifiction(name.replace('*', ''))
                 # 写区号
                 for code_byte in code_bytes:
                     f.write(code_byte.to_bytes(1))
                 # 写类型
-                f.write(t.value.to_bytes(1))
+                f.write(region_type.value.to_bytes(1))
                 # 写地区名
                 name_bytes = name.encode()
+                name_size = len(name_bytes)
+                # 写废弃年份，值为 int(discard_year) - 1980
+                discard_year_int = 0
+                if discard_year:
+                    discard_year_int = int(discard_year) - 1980
+                    name_size += 1
+                # 写名称字节长度
+                f.write(name_size.to_bytes(1))
                 f.write(name_bytes)
-                f.write(SPLIT_CHAR.encode())
-                index_offset += 3 + 1 + len(name_bytes) + len(SPLIT_CHAR.encode())
+                if discard_year_int:
+                    f.write(discard_year_int.to_bytes(1))
+                index_offset += 3 + 1 + 1 + name_size
             # 写索引区偏移
             f.seek(4)
             f.write(index_offset.to_bytes(4))
@@ -132,12 +141,12 @@ class RegionCtr:
 
     def search(self, region_code: str) -> tuple[str, list[str]]:
         if len(region_code) != 6:
-            raise ValueError("地区编码必须为6位")
-        with open(self.file_name, "rb") as f:
+            raise ValueError('地区编码必须为6位')
+        with open(self.file_name, 'rb') as f:
             # version = int.from_bytes(f.read(4), byteorder="big")
             # 跳过版本号
             f.seek(4)
-            index_offset = int.from_bytes(f.read(4), byteorder="big")
+            index_offset = int.from_bytes(f.read(4), byteorder='big')
             # 查找 索引区
             code_2 = int(region_code[:2])
             f.seek(index_offset)
@@ -145,34 +154,45 @@ class RegionCtr:
             for _ in range(0, 50):
                 index = f.read(5)
                 if not index:
-                    return "", []
+                    return '', []
                 if code_2 == index[0]:
                     offset = int.from_bytes(index[1:])
                     break
             if not offset:
-                return "", []
+                return '', []
             # 找到记录区
             f.seek(offset)
-            # ( 6 + 3 * 2) * 250 ，250个应该足够了
-            province_record = f.read(3000)
-            province_record_splits = province_record.split(SPLIT_CHAR.encode())
+            province_record = f.read(6000)
             # 一级行政区， 二级行政区, 查询的区号
             search_codes = [
-                f"{region_code[:2]}0000",
-                f"{region_code[:4]}00",
+                f'{region_code[:2]}0000',
+                f'{region_code[:4]}00',
                 region_code,
             ]
             result = []
-            for line in province_record_splits:
-                code_tmp = self.bytes_to_region_code(line[:3])
+            while province_record:
+                # 地区码
+                code_tmp = self.bytes_to_region_code(province_record[:3])
                 # 已经到别的省份
                 if code_tmp[:2] != region_code[:2]:
-                    return "", []
-                # 找到
+                    return '', result
+                # size 名称长度
+                size = province_record[4]
                 if code_tmp in search_codes:
-                    t = line[3]
-                    name = line[4:].decode()
-                    result.append(f"{name}{RegionType(t).label}")
+                    # 类型
+                    region_type = province_record[3]
+                    name = province_record[5 : 5 + size]
+                    discard_year = 0
+                    name = name.decode()
+                    last_int = name[-1]
+                    if ord(last_int) < 256:
+                        discard_year = ord(last_int) + 1980
+                        name = name[:-1]
+                    if not discard_year:
+                        result.append(f'{name}{RegionType(region_type).label}')
+                    else:
+                        result.append(f'{name}{RegionType(region_type).label} ({discard_year}年废弃)')
                     if code_tmp == region_code:
-                        return "".join(result), result
-        return "", []
+                        return ''.join(result), result
+                province_record = province_record[(5 + size) :]
+        return '', []

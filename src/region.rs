@@ -6,10 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use crate::{trie::RegionTrie, utils::split_by_utf8_delimiter, RegionItem};
-
-// "¦"
-const DELIMITER_BYTES: [u8; 2] = [194, 166];
+use crate::{trie::RegionTrie, RegionItem};
 
 #[derive(Debug)]
 pub struct Region {
@@ -64,17 +61,30 @@ impl Region {
         let mut record = vec![0u8; (self.offset_index - 8) as usize];
         file.read_exact(&mut record)?;
         let mut res = Vec::new();
-        for line in split_by_utf8_delimiter(record, &DELIMITER_BYTES) {
-            let region_data = i32::from_be_bytes(line[..4].try_into().unwrap());
+        while !record.is_empty() {
+            let region_data = i32::from_be_bytes(record[..4].try_into().unwrap());
             let region = region_data >> 8;
             let region_type = region_data % region;
-            let name = String::from_utf8(line[4..].into())?;
-            let name = format!("{name}{}", self.get_type_name(region_type));
+            let size = record[4];
+            let name_bytes: Vec<u8> = record.iter().skip(5).take(size as usize).copied().collect();
+            let mut name = String::from_utf8(name_bytes)?;
+            let discard_year_int = name.chars().last().unwrap() as u32;
+            if discard_year_int < 256 {
+                name = format!(
+                    "{}{} ({}年废弃)",
+                    &name[..name.len() - 1],
+                    self.get_type_name(region_type),
+                    discard_year_int + 1980,
+                );
+            } else {
+                name = format!("{name}{}", self.get_type_name(region_type));
+            }
             res.push(RegionItem {
                 region_code: region.to_string(),
                 name,
                 region_slice: Vec::new(),
             });
+            record = record.iter().skip((5 + size) as usize).copied().collect();
         }
         Ok(res)
     }
@@ -128,7 +138,7 @@ impl Region {
             return Err(anyhow!("cannot find record"));
         }
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
-        let mut province_record: [u8; 3000] = [0u8; 3000];
+        let mut province_record: [u8; 6000] = [0u8; 6000];
         file.read_exact(&mut province_record)?;
         let search_codes = [
             format!("{}0000", &region_code[..2]),
@@ -136,18 +146,38 @@ impl Region {
             region_code.to_string(),
         ];
         let mut region_slice = Vec::new();
-        for line in split_by_utf8_delimiter(province_record.into(), &DELIMITER_BYTES) {
-            let region_data = i32::from_be_bytes(line[..4].try_into().unwrap());
+        let mut offset = 0;
+        while offset < 6000 {
+            let region_data =
+                i32::from_be_bytes(province_record[offset..(4 + offset)].try_into().unwrap());
             let region = region_data >> 8;
             if region / 10000 != region_code_int / 10000 {
                 break;
             }
             let region_type = region_data % region;
+            let size = province_record[4 + offset];
             if search_codes.contains(&region.to_string()) {
-                let name = String::from_utf8(line[4..].into())?;
-                let name = format!("{name}{}", self.get_type_name(region_type));
+                let name_bytes: Vec<u8> = province_record
+                    .iter()
+                    .skip(5 + offset)
+                    .take(size as usize)
+                    .copied()
+                    .collect();
+                let mut name = String::from_utf8(name_bytes)?;
+                let discard_year_int = name.chars().last().unwrap() as u32;
+                if discard_year_int < 256 {
+                    name = format!(
+                        "{}{} ({}年废弃)",
+                        &name[..name.len() - 1],
+                        self.get_type_name(region_type),
+                        discard_year_int + 1980,
+                    );
+                } else {
+                    name = format!("{name}{}", self.get_type_name(region_type));
+                }
                 region_slice.push(name);
             }
+            offset += (5 + size) as usize;
         }
         if region_slice.is_empty() {
             return Err(anyhow!("cannot find record"));
@@ -166,14 +196,18 @@ mod tests {
 
     #[test]
     fn test_region() {
-        let mut region = Region::new(PathBuf::from("data/region.dat"));
+        let mut region = Region::new(PathBuf::from("data/region_full.dat"));
         let result = region.search_with_data("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
         assert_eq!(
             result.region_slice,
             vec!["云南省", "临沧市", "双江拉祜族佤族布朗族傣族自治县",]
         );
+        let result = region.search_with_data("110103").unwrap();
+        assert_eq!(result.name, "北京市崇文区 (2010年废弃)");
         let result = region.search_with_trie("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
+        let result = region.search_with_trie("110103").unwrap();
+        assert_eq!(result.name, "北京市崇文区 (2010年废弃)");
     }
 }

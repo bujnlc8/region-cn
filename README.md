@@ -5,9 +5,15 @@
 
 数据来源于[https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html](https://www.mca.gov.cn/mzsj/xzqh/2023/202301xzqh.html)，是目前官方最新的数据。
 
-数据经过压缩处理，可从[data/region.dat](./data/region.dat)下载。
+数据经过压缩处理，最新的版本可从[data/region.dat](./data/region.dat)下载。
 
-文件数据结构如下:
+由于行政区划经过多次调整，很多区划代码都已废弃，但可能还在使用，这种废弃的代码在最新的数据是查找不到的，比如`110103` 北京市崇文区，于 2010 年废弃。
+
+因此从[https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E8%A1%8C%E6%94%BF%E5%8C%BA%E5%88%92%E4%BB%A3%E7%A0%81](https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E8%A1%8C%E6%94%BF%E5%8C%BA%E5%88%92%E4%BB%A3%E7%A0%81)整理了历史数据，这可能是全网能找到的最全的记录了，可以从[data/region_full.dat](./data/region_full.dat)下载。
+
+也提供了 MySQL 数据库 SQL 供下载 [data/region.sql](./data/region.sql)
+
+`region*.dat`文件的数据结构如下:
 
 ![region-code.png](./region-code.png)
 
