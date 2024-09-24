@@ -1,3 +1,5 @@
+//! Region search implement
+
 use std::{
     fs::File,
     io::{Read, Seek},
@@ -69,20 +71,17 @@ impl Region {
             let name_bytes: Vec<u8> = record.iter().skip(5).take(size as usize).copied().collect();
             let mut name = String::from_utf8(name_bytes)?;
             let discard_year_int = name.chars().last().unwrap() as u32;
+            let mut discard_year = 0;
             if discard_year_int < 256 {
-                name = format!(
-                    "{}{} ({}年废弃)",
-                    &name[..name.len() - 1],
-                    self.get_type_name(region_type),
-                    discard_year_int + 1980,
-                );
-            } else {
-                name = format!("{name}{}", self.get_type_name(region_type));
+                discard_year = discard_year_int + 1980;
+                name = (&name[..name.len() - 1]).to_string();
             }
+            name = format!("{name}{}", self.get_type_name(region_type));
             res.push(RegionItem {
                 region_code: region.to_string(),
                 name,
                 region_slice: Vec::new(),
+                discard_year,
             });
             record = record.iter().skip((5 + size) as usize).copied().collect();
         }
@@ -94,7 +93,7 @@ impl Region {
         let mut trier = RegionTrie::new();
         self.get_record_from_data()?
             .iter()
-            .for_each(|x| trier.insert(x.region_code.clone(), x.name.clone()));
+            .for_each(|x| trier.insert(x.region_code.clone(), x.name.clone(), x.discard_year));
         Ok(trier)
     }
 
@@ -147,6 +146,7 @@ impl Region {
         ];
         let mut region_slice = Vec::new();
         let mut offset = 0;
+        let mut discard_year = 0;
         while offset < 6000 {
             let region_data =
                 i32::from_be_bytes(province_record[offset..(4 + offset)].try_into().unwrap());
@@ -166,15 +166,10 @@ impl Region {
                 let mut name = String::from_utf8(name_bytes)?;
                 let discard_year_int = name.chars().last().unwrap() as u32;
                 if discard_year_int < 256 {
-                    name = format!(
-                        "{}{} ({}年废弃)",
-                        &name[..name.len() - 1],
-                        self.get_type_name(region_type),
-                        discard_year_int + 1980,
-                    );
-                } else {
-                    name = format!("{name}{}", self.get_type_name(region_type));
+                    discard_year = discard_year_int + 1980;
+                    name = (&name[..name.len() - 1]).to_string();
                 }
+                name = format!("{name}{}", self.get_type_name(region_type));
                 region_slice.push(name);
             }
             offset += (5 + size) as usize;
@@ -186,6 +181,7 @@ impl Region {
             region_code: region_code.to_string(),
             name: region_slice.join(""),
             region_slice,
+            discard_year,
         })
     }
 }
@@ -203,11 +199,15 @@ mod tests {
             result.region_slice,
             vec!["云南省", "临沧市", "双江拉祜族佤族布朗族傣族自治县",]
         );
+        assert_eq!(result.discard_year, 0);
         let result = region.search_with_data("110103").unwrap();
-        assert_eq!(result.name, "北京市崇文区 (2010年废弃)");
+        assert_eq!(result.name, "北京市崇文区");
+        assert_eq!(result.discard_year, 2010);
         let result = region.search_with_trie("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
+        assert_eq!(result.discard_year, 0);
         let result = region.search_with_trie("110103").unwrap();
-        assert_eq!(result.name, "北京市崇文区 (2010年废弃)");
+        assert_eq!(result.name, "北京市崇文区");
+        assert_eq!(result.discard_year, 2010);
     }
 }

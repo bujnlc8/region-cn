@@ -1,3 +1,4 @@
+//! 前缀树实现，每个节点代表2位地区代码
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
@@ -5,16 +6,31 @@ use anyhow::{anyhow, Result};
 use crate::RegionItem;
 
 #[derive(Debug, Clone)]
+pub struct RegionNameItem {
+    text: String,
+    discard_year: u32,
+}
+
+impl Default for RegionNameItem {
+    fn default() -> Self {
+        Self {
+            text: Default::default(),
+            discard_year: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RegionNode {
     children: HashMap<String, RegionNode>,
-    text: String,
+    item: RegionNameItem,
 }
 
 impl RegionNode {
-    fn new(text: String) -> Self {
+    fn new(item: RegionNameItem) -> Self {
         RegionNode {
             children: HashMap::new(),
-            text,
+            item,
         }
     }
 }
@@ -27,12 +43,12 @@ pub struct RegionTrie {
 impl RegionTrie {
     pub fn new() -> Self {
         RegionTrie {
-            root: RegionNode::new(String::new()),
+            root: RegionNode::new(RegionNameItem::default()),
         }
     }
 
     /// 插入地区码和地区
-    pub fn insert(&mut self, key: String, value: String) {
+    pub fn insert(&mut self, key: String, value: String, discard_year: u32) {
         let mut node = &mut self.root;
         let trimed_key = key.trim_end_matches("00");
         for (i, s) in trimed_key
@@ -46,8 +62,13 @@ impl RegionTrie {
                 let mut text = String::new();
                 if i + 1 == trimed_key.len() / 2 {
                     text = value.clone();
+                    RegionNode::new(RegionNameItem { text, discard_year })
+                } else {
+                    RegionNode::new(RegionNameItem {
+                        text,
+                        discard_year: 0,
+                    })
                 }
-                RegionNode::new(text)
             });
         }
     }
@@ -55,7 +76,7 @@ impl RegionTrie {
     // 搜索地区码
     pub fn search(&self, region_code: &str) -> Result<RegionItem> {
         let mut node = &self.root;
-        let mut res: Vec<String> = Vec::new();
+        let mut res: Vec<RegionNameItem> = Vec::new();
         for s in region_code
             .chars()
             .collect::<Vec<_>>()
@@ -68,7 +89,7 @@ impl RegionTrie {
             match node.children.get(&s) {
                 Some(next_node) => {
                     node = next_node;
-                    res.push(next_node.text.clone());
+                    res.push(next_node.item.clone());
                 }
                 None => {
                     break;
@@ -78,10 +99,12 @@ impl RegionTrie {
         if res.is_empty() {
             return Err(anyhow!("cannot find record"));
         }
+        let region_slice: Vec<String> = res.iter().map(|x| x.text.clone()).collect();
         Ok(RegionItem {
             region_code: region_code.to_string(),
-            name: res.join(""),
-            region_slice: res,
+            name: region_slice.join(""),
+            region_slice,
+            discard_year: res.last().unwrap().discard_year,
         })
     }
 }
@@ -93,19 +116,26 @@ mod tests {
     #[test]
     fn test_region_trie() {
         let mut tree = RegionTrie::new();
-        tree.insert(String::from("110000"), String::from("北京市"));
-        tree.insert(String::from("110101"), String::from("东城区"));
-        tree.insert(String::from("110102"), String::from("西城区"));
-        tree.insert(String::from("110105"), String::from("朝阳区"));
-        tree.insert(String::from("130000"), String::from("河北省"));
-        tree.insert(String::from("130100"), String::from("石家庄市"));
-        tree.insert(String::from("130102"), String::from("长安区"));
-        tree.insert(String::from("130104"), String::from("桥西区"));
+        tree.insert(String::from("110000"), String::from("北京市"), 0);
+        tree.insert(String::from("110101"), String::from("东城区"), 0);
+        tree.insert(String::from("110102"), String::from("西城区"), 0);
+        tree.insert(String::from("110103"), String::from("崇文区"), 2010);
+        tree.insert(String::from("110105"), String::from("朝阳区"), 0);
+        tree.insert(String::from("130000"), String::from("河北省"), 0);
+        tree.insert(String::from("130100"), String::from("石家庄市"), 0);
+        tree.insert(String::from("130102"), String::from("长安区"), 0);
+        tree.insert(String::from("130104"), String::from("桥西区"), 0);
         assert_eq!(tree.search("110000").unwrap().name, String::from("北京市"));
         assert_eq!(
             tree.search("110101").unwrap().name,
             String::from("北京市东城区")
         );
+        assert_eq!(tree.search("110101").unwrap().discard_year, 0,);
+        assert_eq!(
+            tree.search("110103").unwrap().name,
+            String::from("北京市崇文区")
+        );
+        assert_eq!(tree.search("110103").unwrap().discard_year, 2010,);
         assert_eq!(tree.search("130000").unwrap().name, String::from("河北省"));
         assert_eq!(
             tree.search("130100").unwrap().name,

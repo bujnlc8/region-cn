@@ -30,9 +30,15 @@ assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族�
 pub mod region;
 pub mod trie;
 
+/// RegionItem
 #[derive(Debug)]
 pub struct RegionItem {
+    /// 地区代码
     pub region_code: String,
+    /// 地区全称
     pub name: String,
+    /// 一级 二级 三级 行政区列表
     pub region_slice: Vec<String>,
+    /// 废弃的年份
+    pub discard_year: u32,
 }
