@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use crate::{trie::RegionTrie, RegionItem};
+use crate::{be_u8_slice_to_i32, trie::RegionTrie, RegionItem};
 
 #[derive(Debug)]
 pub struct Region {
@@ -54,9 +54,8 @@ impl Region {
     /// 从 region.dat读取数据记录
     fn get_record_from_data(&mut self) -> Result<Vec<RegionItem>> {
         let mut file = File::open(&self.file_path)?;
-        let mut version_bytes: [u8; 4] = [0; 4];
-        file.read_exact(&mut version_bytes)?;
-        self.version = i32::from_be_bytes(version_bytes).to_string();
+        // 跳过版本号
+        file.seek(std::io::SeekFrom::Start(4))?;
         let mut index_offset: [u8; 4] = [0; 4];
         file.read_exact(&mut index_offset)?;
         self.offset_index = i32::from_be_bytes(index_offset);
@@ -64,11 +63,11 @@ impl Region {
         file.read_exact(&mut record)?;
         let mut res = Vec::new();
         while !record.is_empty() {
-            let region_data = i32::from_be_bytes(record[..4].try_into().unwrap());
-            let region = region_data >> 8;
+            let region_data = be_u8_slice_to_i32(&record[..3]);
+            let region = region_data >> 4;
             let region_type = region_data % region;
-            let size = record[4];
-            let name_bytes: Vec<u8> = record.iter().skip(5).take(size as usize).copied().collect();
+            let size = record[3];
+            let name_bytes: Vec<u8> = record.iter().skip(4).take(size as usize).copied().collect();
             let mut name = String::from_utf8(name_bytes)?;
             let discard_year_int = name.chars().last().unwrap() as u32;
             let mut discard_year = 0;
@@ -83,7 +82,7 @@ impl Region {
                 region_slice: Vec::new(),
                 discard_year,
             });
-            record = record.iter().skip((5 + size) as usize).copied().collect();
+            record = record.iter().skip((4 + size) as usize).copied().collect();
         }
         Ok(res)
     }
@@ -109,15 +108,25 @@ impl Region {
         self.region_trier.clone().unwrap().search(region_code)
     }
 
+    /// 获取数据版本号
+    pub fn get_version(&mut self) -> Result<&str> {
+        if !self.version.is_empty() {
+            return Ok(&self.version);
+        }
+        let mut file = File::open(&self.file_path)?;
+        let mut version_bytes: [u8; 4] = [0; 4];
+        file.read_exact(&mut version_bytes)?;
+        self.version = i32::from_be_bytes(version_bytes).to_string();
+        Ok(&self.version)
+    }
+
     /// 从region.dat搜索数据
     pub fn search_with_data(&mut self, region_code: &str) -> Result<RegionItem> {
         if region_code.len() != 6 {
             return Err(anyhow!("region_code's length must be 6"));
         }
         let mut file = File::open(&self.file_path)?;
-        let mut version_bytes: [u8; 4] = [0; 4];
-        file.read_exact(&mut version_bytes)?;
-        self.version = i32::from_be_bytes(version_bytes).to_string();
+        file.seek(std::io::SeekFrom::Start(4))?;
         let mut index_offset: [u8; 4] = [0; 4];
         file.read_exact(&mut index_offset)?;
         self.offset_index = i32::from_be_bytes(index_offset);
@@ -148,18 +157,17 @@ impl Region {
         let mut offset = 0;
         let mut discard_year = 0;
         while offset < 6000 {
-            let region_data =
-                i32::from_be_bytes(province_record[offset..(4 + offset)].try_into().unwrap());
-            let region = region_data >> 8;
+            let region_data = be_u8_slice_to_i32(&province_record[offset..(3 + offset)]);
+            let region = region_data >> 4;
             if region / 10000 != region_code_int / 10000 {
                 break;
             }
             let region_type = region_data % region;
-            let size = province_record[4 + offset];
+            let size = province_record[3 + offset];
             if search_codes.contains(&region.to_string()) {
                 let name_bytes: Vec<u8> = province_record
                     .iter()
-                    .skip(5 + offset)
+                    .skip(4 + offset)
                     .take(size as usize)
                     .copied()
                     .collect();
@@ -172,7 +180,7 @@ impl Region {
                 name = format!("{name}{}", self.get_type_name(region_type));
                 region_slice.push(name);
             }
-            offset += (5 + size) as usize;
+            offset += (4 + size) as usize;
         }
         if region_slice.is_empty() {
             return Err(anyhow!("cannot find record"));
@@ -193,6 +201,7 @@ mod tests {
     #[test]
     fn test_region() {
         let mut region = Region::new(PathBuf::from("data/region_full.dat"));
+        assert_eq!(region.get_version().unwrap(), "2024092535");
         let result = region.search_with_data("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
         assert_eq!(

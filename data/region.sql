@@ -6,7 +6,7 @@
 # https://github.com/Sequel-Ace/Sequel-Ace
 #
 # 主机: 127.0.0.1 (MySQL 5.7.44)
-# 数据库: challenge
+# 数据库: region
 # 生成时间: 2024-09-24 14:03:58 +0000
 # ************************************************************
 
@@ -28,7 +28,7 @@ DROP TABLE IF EXISTS `region`;
 CREATE TABLE `region` (
   `region_code` varchar(10) NOT NULL COMMENT '代码',
   `name` varchar(100) NOT NULL COMMENT '名称',
-  `discard_year` varchar(10) NOT NULL DEFAULT '' COMMENT '废弃年份',
+  `discard_year` varchar(10) NOT NULL DEFAULT '' COMMENT '废止年份',
   PRIMARY KEY (`region_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -1,6 +1,6 @@
 [package]
 name = "region-cn"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["bujnlc8 <75124771@qq.com>"]
 description = "A lib to search chinese region by 6-digit administrative code with trier or search in place."

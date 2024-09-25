@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 
 
@@ -62,33 +63,9 @@ class RegionCtr:
     def __init__(self, file_name: str = 'region.dat') -> None:
         self.file_name = file_name
 
-    @staticmethod
-    def region_code_to_bytes(code: str) -> tuple[int, int, int]:
-        """region_code_to_bytes.
-        将地区码转成3个字节
-
-        :param code:
-        :type code: str
-        :rtype: tuple[int, int, int]
-        """
-        code_i = int(code)
-        res = []
-        for i in range(16, -1, -8):
-            div = code_i // 2**i
-            code_i = code_i % 2**i
-            res.append(div)
-        return tuple(res)
-
-    @staticmethod
-    def bytes_to_region_code(code_bytes: bytes) -> str:
-        if len(code_bytes) != 3:
-            raise ValueError("bytes's length must be 3")
-        res = 0
-        for i in range(2, -1, -1):
-            res += code_bytes[2 - i] * 2 ** (8 * i)
-        return str(res)
-
-    def pack(self, data_list: list[tuple[str, str, str]] | list[tuple[str, str]], version: int = 202301) -> bool:
+    def pack(self, data_list: list[tuple[str, str, str]] | list[tuple[str, str]], version: int = 0) -> bool:
+        version = version or int(datetime.now().strftime('%Y%m%d%M'))
+        print('version: ', version)
         with open(self.file_name, 'wb') as f:
             # 写32位版本号
             f.write(version.to_bytes(length=4))
@@ -106,17 +83,14 @@ class RegionCtr:
                 code_2 = int(code[:2])
                 if code_2 not in offset_map:
                     offset_map[code_2] = index_offset
-                code_bytes = self.region_code_to_bytes(code)
+                code_int = int(code) << 4
                 name, region_type = RegionType.name_classifiction(name.replace('*', ''))
-                # 写区号
-                for code_byte in code_bytes:
-                    f.write(code_byte.to_bytes(1))
-                # 写类型
-                f.write(region_type.value.to_bytes(1))
-                # 写地区名
+                code_type = code_int + region_type.value
+                # 写区号 + 类型，区号20位，类型4位，加起来刚好3个字节
+                f.write(code_type.to_bytes(3))
                 name_bytes = name.encode()
                 name_size = len(name_bytes)
-                # 写废弃年份，值为 int(discard_year) - 1980
+                # 写废止年份，值为 int(discard_year) - 1980
                 discard_year_int = 0
                 if discard_year:
                     discard_year_int = int(discard_year) - 1980
@@ -126,7 +100,7 @@ class RegionCtr:
                 f.write(name_bytes)
                 if discard_year_int:
                     f.write(discard_year_int.to_bytes(1))
-                index_offset += 3 + 1 + 1 + name_size
+                index_offset += 3 + 1 + name_size
             # 写索引区偏移
             f.seek(4)
             f.write(index_offset.to_bytes(4))
@@ -171,28 +145,29 @@ class RegionCtr:
             ]
             result = []
             while province_record:
-                # 地区码
-                code_tmp = self.bytes_to_region_code(province_record[:3])
+                # 地区码 + 类型, 高20位是区号，低4位是类型
+                code_type = int.from_bytes(province_record[:3])
+                code_int = code_type >> 4
                 # 已经到别的省份
-                if code_tmp[:2] != region_code[:2]:
+                if str(code_int)[:2] != region_code[:2]:
                     return '', result
                 # size 名称长度
-                size = province_record[4]
-                if code_tmp in search_codes:
-                    # 类型
-                    region_type = province_record[3]
-                    name = province_record[5 : 5 + size]
+                size = province_record[3]
+                if str(code_int) in search_codes:
+                    name = province_record[4 : 4 + size]
                     discard_year = 0
                     name = name.decode()
                     last_int = name[-1]
                     if ord(last_int) < 256:
                         discard_year = ord(last_int) + 1980
                         name = name[:-1]
+                    # 类型
+                    region_type = code_type % code_int
                     if not discard_year:
                         result.append(f'{name}{RegionType(region_type).label}')
                     else:
-                        result.append(f'{name}{RegionType(region_type).label} ({discard_year}年废弃)')
-                    if code_tmp == region_code:
+                        result.append(f'{name}{RegionType(region_type).label} ({discard_year}年废止)')
+                    if str(code_int) == region_code:
                         return ''.join(result), result
-                province_record = province_record[(5 + size) :]
+                province_record = province_record[4 + size :]
         return '', []

@@ -37,8 +37,18 @@ pub struct RegionItem {
     pub region_code: String,
     /// 地区全称
     pub name: String,
-    /// 一级 二级 三级 行政区列表
+    /// 一级 二级 三级 地区名称
     pub region_slice: Vec<String>,
-    /// 废弃的年份
+    /// 废止的年份，为0表示未废止
     pub discard_year: u32,
+}
+
+/// 大端字节序列转成i32
+pub(crate) fn be_u8_slice_to_i32(bytes: &[u8]) -> i32 {
+    let mut res = 0;
+    let length = bytes.len();
+    for (i, b) in bytes.iter().enumerate() {
+        res += (*b as i32) << ((length - i - 1) * 8)
+    }
+    res
 }
