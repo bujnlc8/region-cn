@@ -73,7 +73,7 @@ impl Region {
             let mut discard_year = 0;
             if discard_year_int < 256 {
                 discard_year = discard_year_int + 1980;
-                name = (&name[..name.len() - 1]).to_string();
+                name = name[..name.len() - 1].to_string();
             }
             name = format!("{name}{}", self.get_type_name(region_type));
             res.push(RegionItem {
@@ -136,7 +136,10 @@ impl Region {
         let region_code_int: i32 = region_code.parse()?;
         let mut offset = 0;
         for _ in 0..50 {
-            file.read(&mut region_code_offset)?;
+            let amount = file.read(&mut region_code_offset)?;
+            if amount == 0 {
+                break;
+            }
             if region_code_offset.first().unwrap() == &((region_code_int / 10000) as u8) {
                 offset = i32::from_be_bytes(region_code_offset[1..].try_into()?);
                 break;
@@ -147,7 +150,7 @@ impl Region {
         }
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
         let mut province_record: [u8; 6000] = [0u8; 6000];
-        file.read(&mut province_record)?;
+        let _ = file.read(&mut province_record)?;
         let search_codes = [
             format!("{}0000", &region_code[..2]),
             format!("{}00", &region_code[..4]),
@@ -175,7 +178,7 @@ impl Region {
                 let discard_year_int = name.chars().last().unwrap() as u32;
                 if discard_year_int < 256 {
                     discard_year = discard_year_int + 1980;
-                    name = (&name[..name.len() - 1]).to_string();
+                    name = name[..name.len() - 1].to_string();
                 }
                 name = format!("{name}{}", self.get_type_name(region_type));
                 region_slice.push(name);

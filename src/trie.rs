@@ -5,19 +5,10 @@ use anyhow::{anyhow, Result};
 
 use crate::RegionItem;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RegionNameItem {
     text: String,
     discard_year: u32,
-}
-
-impl Default for RegionNameItem {
-    fn default() -> Self {
-        Self {
-            text: Default::default(),
-            discard_year: Default::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
