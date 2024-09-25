@@ -136,9 +136,9 @@ impl Region {
         let region_code_int: i32 = region_code.parse()?;
         let mut offset = 0;
         for _ in 0..50 {
-            file.read_exact(&mut region_code_offset)?;
+            file.read(&mut region_code_offset)?;
             if region_code_offset.first().unwrap() == &((region_code_int / 10000) as u8) {
-                offset = i32::from_be_bytes(region_code_offset[1..].try_into().unwrap());
+                offset = i32::from_be_bytes(region_code_offset[1..].try_into()?);
                 break;
             }
         }
@@ -147,7 +147,7 @@ impl Region {
         }
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
         let mut province_record: [u8; 6000] = [0u8; 6000];
-        file.read_exact(&mut province_record)?;
+        file.read(&mut province_record)?;
         let search_codes = [
             format!("{}0000", &region_code[..2]),
             format!("{}00", &region_code[..4]),
