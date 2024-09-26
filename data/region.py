@@ -64,15 +64,15 @@ class RegionCtr:
         self.file_name = file_name
 
     def pack(self, data_list: list[tuple[str, str, str]] | list[tuple[str, str]], version: int = 0) -> bool:
-        version = version or int(datetime.now().strftime('%Y%m%d%M'))
+        version = version or int(datetime.now().strftime('%Y%m%d%H'))
         print('version: ', version)
         with open(self.file_name, 'wb') as f:
             # 写32位版本号
             f.write(version.to_bytes(length=4))
             # 先跳过偏移
-            f.seek(8)
+            f.seek(7)
             # 写数据, code [i:3] type [i: 1] region [c: n] \n
-            index_offset = 8
+            index_offset = 7
             offset_map: dict[int, int] = {}
             for data in data_list:
                 discard_year = ''
@@ -101,16 +101,18 @@ class RegionCtr:
                 if discard_year_int:
                     f.write(discard_year_int.to_bytes(1))
                 index_offset += 3 + 1 + name_size
-            # 写索引区偏移
+            # 写索引区偏移， 索引区偏移3个字节
             f.seek(4)
-            f.write(index_offset.to_bytes(4))
+            f.write(index_offset.to_bytes(3))
             f.seek(index_offset)
             # 写索引区
             offset_codes = list(offset_map.keys())
             offset_codes.sort()
             for offset_code in offset_codes:
-                f.write(offset_code.to_bytes(1))
-                f.write(offset_map[offset_code].to_bytes(4))
+                # offset_code 高7位， offset 低17位，刚好3个字节
+                combine = offset_code << 17
+                combine += offset_map[offset_code]
+                f.write(combine.to_bytes(3))
         return True
 
     def search(self, region_code: str) -> tuple[str, list[str]]:
@@ -120,17 +122,19 @@ class RegionCtr:
             # version = int.from_bytes(f.read(4), byteorder="big")
             # 跳过版本号
             f.seek(4)
-            index_offset = int.from_bytes(f.read(4), byteorder='big')
+            index_offset = int.from_bytes(f.read(3), byteorder='big')
             # 查找 索引区
             code_2 = int(region_code[:2])
             f.seek(index_offset)
             offset = 0
             for _ in range(0, 50):
-                index = f.read(5)
-                if not index:
+                combine_bytes = f.read(3)
+                if not combine_bytes:
                     return '', []
-                if code_2 == index[0]:
-                    offset = int.from_bytes(index[1:])
+                combine = int.from_bytes(combine_bytes)
+                code = combine >> 17
+                if code_2 == code:
+                    offset = combine % (2**17)
                     break
             if not offset:
                 return '', []

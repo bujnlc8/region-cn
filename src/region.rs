@@ -56,10 +56,10 @@ impl Region {
         let mut file = File::open(&self.file_path)?;
         // 跳过版本号
         file.seek(std::io::SeekFrom::Start(4))?;
-        let mut index_offset: [u8; 4] = [0; 4];
+        let mut index_offset: [u8; 3] = [0; 3];
         file.read_exact(&mut index_offset)?;
-        self.offset_index = i32::from_be_bytes(index_offset);
-        let mut record = vec![0u8; (self.offset_index - 8) as usize];
+        self.offset_index = be_u8_slice_to_i32(&index_offset);
+        let mut record = vec![0u8; (self.offset_index - 7) as usize];
         file.read_exact(&mut record)?;
         let mut res = Vec::new();
         while !record.is_empty() {
@@ -127,12 +127,12 @@ impl Region {
         }
         let mut file = File::open(&self.file_path)?;
         file.seek(std::io::SeekFrom::Start(4))?;
-        let mut index_offset: [u8; 4] = [0; 4];
+        let mut index_offset: [u8; 3] = [0; 3];
         file.read_exact(&mut index_offset)?;
-        self.offset_index = i32::from_be_bytes(index_offset);
+        self.offset_index = be_u8_slice_to_i32(&index_offset);
         // 查找索引区
         file.seek(std::io::SeekFrom::Start(self.offset_index as u64))?;
-        let mut region_code_offset: [u8; 5] = [0u8; 5];
+        let mut region_code_offset: [u8; 3] = [0u8; 3];
         let region_code_int: i32 = region_code.parse()?;
         let mut offset = 0;
         for _ in 0..50 {
@@ -140,8 +140,11 @@ impl Region {
             if amount == 0 {
                 break;
             }
-            if region_code_offset.first().unwrap() == &((region_code_int / 10000) as u8) {
-                offset = i32::from_be_bytes(region_code_offset[1..].try_into()?);
+            // 高7位表示code的前2位，后17位表示偏移
+            let combine = be_u8_slice_to_i32(&region_code_offset);
+            let code_2 = combine >> 17;
+            if code_2 == region_code_int / 10000 {
+                offset = combine - (code_2 << 17);
                 break;
             }
         }
@@ -165,6 +168,7 @@ impl Region {
             if region / 10000 != region_code_int / 10000 {
                 break;
             }
+            // let region_type = region_data - (region << 4);
             let region_type = region_data % region;
             let size = province_record[3 + offset];
             if search_codes.contains(&region.to_string()) {
@@ -204,7 +208,7 @@ mod tests {
     #[test]
     fn test_region() {
         let mut region = Region::new(PathBuf::from("data/region_full.dat"));
-        assert_eq!(region.get_version().unwrap(), "2024092535");
+        assert_eq!(region.get_version().unwrap(), "2024092612");
         let result = region.search_with_data("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
         assert_eq!(
