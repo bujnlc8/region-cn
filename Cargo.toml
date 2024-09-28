@@ -1,13 +1,13 @@
 [package]
 name = "region-cn"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 authors = ["bujnlc8 <75124771@qq.com>"]
 description = "A lib to search chinese region by 6-digit administrative code with trier or search in place."
 repository = "https://github.com/bujnlc8/region-cn"
 license = "MIT"
-keywords = ["region-code", "chinese-region"]
+keywords = ["region-code", "chinese-region", "region"]
 exclude = ["data/", "region-code.png"]
 
-[dependencies]
-anyhow = "1.0.89"
+[dev-dependencies]
+serde_json = "1.0.128"

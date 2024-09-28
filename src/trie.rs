@@ -1,9 +1,7 @@
 //! 前缀树实现，每个节点代表2位地区代码
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
-
-use crate::RegionItem;
+use crate::{RegionError, RegionItem};
 
 #[derive(Debug, Clone, Default)]
 pub struct RegionNameItem {
@@ -65,7 +63,7 @@ impl RegionTrie {
     }
 
     // 搜索地区码
-    pub fn search(&self, region_code: &str) -> Result<RegionItem> {
+    pub fn search(&self, region_code: &str) -> Result<RegionItem, RegionError> {
         let mut node = &self.root;
         let mut res: Vec<RegionNameItem> = Vec::new();
         for s in region_code
@@ -74,9 +72,6 @@ impl RegionTrie {
             .chunks(2)
             .map(|chunk| chunk.iter().collect::<String>())
         {
-            if s == "00" {
-                continue;
-            }
             match node.children.get(&s) {
                 Some(next_node) => {
                     node = next_node;
@@ -88,7 +83,7 @@ impl RegionTrie {
             }
         }
         if res.is_empty() {
-            return Err(anyhow!("cannot find record"));
+            return Err(RegionError::Message("cannot find record".to_string()));
         }
         let region_slice: Vec<String> = res.iter().map(|x| x.text.clone()).collect();
         Ok(RegionItem {
@@ -116,6 +111,7 @@ mod tests {
         tree.insert(String::from("130100"), String::from("石家庄市"), 0);
         tree.insert(String::from("130102"), String::from("长安区"), 0);
         tree.insert(String::from("130104"), String::from("桥西区"), 0);
+        tree.insert(String::from("460001"), String::from("五指山市"), 0);
         assert_eq!(tree.search("110000").unwrap().name, String::from("北京市"));
         assert_eq!(
             tree.search("110101").unwrap().name,
@@ -135,6 +131,10 @@ mod tests {
         assert_eq!(
             tree.search("130102").unwrap().name,
             String::from("河北省石家庄市长安区")
+        );
+        assert_eq!(
+            tree.search("460001").unwrap().name,
+            String::from("五指山市")
         );
     }
 }
