@@ -1,14 +1,13 @@
 //! Region search implement
 
 use std::{
+    collections::HashMap,
     fs::File,
     io::{Read, Seek},
     path::PathBuf,
 };
 
-use anyhow::{anyhow, Result};
-
-use crate::{be_u8_slice_to_i32, trie::RegionTrie, RegionItem};
+use crate::{be_u8_slice_to_i32, decode_u8_list, trie::RegionTrie, RegionError, RegionItem};
 
 #[derive(Debug)]
 pub struct Region {
@@ -52,28 +51,58 @@ impl Region {
     }
 
     /// 从 region.dat读取数据记录
-    fn get_record_from_data(&mut self) -> Result<Vec<RegionItem>> {
-        let mut file = File::open(&self.file_path)?;
+    fn get_record_from_data(&mut self) -> Result<Vec<RegionItem>, RegionError> {
+        let mut file = File::open(&self.file_path).map_err(RegionError::IOError)?;
         // 跳过版本号
-        file.seek(std::io::SeekFrom::Start(4))?;
-        let mut index_offset: [u8; 3] = [0; 3];
-        file.read_exact(&mut index_offset)?;
+        file.seek(std::io::SeekFrom::Start(4))
+            .map_err(RegionError::IOError)?;
+        let mut index_offset: [u8; 2] = [0; 2];
+        file.read_exact(&mut index_offset)
+            .map_err(RegionError::IOError)?;
+
         self.offset_index = be_u8_slice_to_i32(&index_offset);
-        let mut record = vec![0u8; (self.offset_index - 7) as usize];
-        file.read_exact(&mut record)?;
+        // 读取字符集
+        let mut chars = String::new();
+        file.seek(std::io::SeekFrom::Start(
+            (self.offset_index + 34 * 3) as u64,
+        ))
+        .map_err(RegionError::IOError)?;
+
+        let _ = file
+            .read_to_string(&mut chars)
+            .map_err(RegionError::IOError)?;
+
+        let mut char_map = HashMap::new();
+        for (i, c) in chars.chars().enumerate() {
+            char_map.insert(i + 64, c);
+        }
+        file.seek(std::io::SeekFrom::Start(6))
+            .map_err(RegionError::IOError)?;
+
+        let mut record = vec![0u8; (self.offset_index - 6) as usize];
+        file.read_exact(&mut record).map_err(RegionError::IOError)?;
+
         let mut res = Vec::new();
         while !record.is_empty() {
-            let region_data = be_u8_slice_to_i32(&record[..3]);
-            let region = region_data >> 4;
-            let region_type = region_data % region;
-            let size = record[3];
-            let name_bytes: Vec<u8> = record.iter().skip(4).take(size as usize).copied().collect();
-            let mut name = String::from_utf8(name_bytes)?;
-            let discard_year_int = name.chars().last().unwrap() as u32;
+            let size = be_u8_slice_to_i32(&record[..1]);
+            let region_code_type = be_u8_slice_to_i32(&record[1..4]);
+            let region = region_code_type >> 4;
+            let region_type = region_code_type % region;
+            let record_bytes: Vec<u8> = record
+                .iter()
+                .skip(4)
+                .take((size - 4) as usize)
+                .copied()
+                .collect();
+            let (name_char_index_list, discard_year_int) = decode_u8_list(&record_bytes);
+            let mut name_chars = Vec::new();
+            for i in name_char_index_list {
+                name_chars.push(char_map.get(&(i as usize)).unwrap());
+            }
+            let mut name = String::from_iter(name_chars);
             let mut discard_year = 0;
-            if discard_year_int < 256 {
+            if discard_year_int > 0 {
                 discard_year = discard_year_int + 1980;
-                name = name[..name.len() - 1].to_string();
             }
             name = format!("{name}{}", self.get_type_name(region_type));
             res.push(RegionItem {
@@ -82,13 +111,13 @@ impl Region {
                 region_slice: Vec::new(),
                 discard_year,
             });
-            record = record.iter().skip((4 + size) as usize).copied().collect();
+            record = record.iter().skip(size as usize).copied().collect();
         }
         Ok(res)
     }
 
     /// 构建前缀树
-    fn create_trier(&mut self) -> Result<RegionTrie> {
+    fn create_trier(&mut self) -> Result<RegionTrie, RegionError> {
         let mut trier = RegionTrie::new();
         self.get_record_from_data()?
             .iter()
@@ -97,9 +126,11 @@ impl Region {
     }
 
     /// 通过前缀树来搜索结果
-    pub fn search_with_trie(&mut self, region_code: &str) -> Result<RegionItem> {
+    pub fn search_with_trie(&mut self, region_code: &str) -> Result<RegionItem, RegionError> {
         if region_code.len() != 6 {
-            return Err(anyhow!("region_code's length must be 6"));
+            return Err(RegionError::Message(
+                "region_code's length must be 6".to_string(),
+            ));
         }
         if self.region_trier.is_none() {
             let trier = self.create_trier().unwrap();
@@ -109,34 +140,55 @@ impl Region {
     }
 
     /// 获取数据版本号
-    pub fn get_version(&mut self) -> Result<&str> {
+    pub fn get_version(&mut self) -> Result<&str, RegionError> {
         if !self.version.is_empty() {
             return Ok(&self.version);
         }
-        let mut file = File::open(&self.file_path)?;
+        let mut file = File::open(&self.file_path).map_err(RegionError::IOError)?;
         let mut version_bytes: [u8; 4] = [0; 4];
-        file.read_exact(&mut version_bytes)?;
+        file.read_exact(&mut version_bytes)
+            .map_err(RegionError::IOError)?;
         self.version = i32::from_be_bytes(version_bytes).to_string();
         Ok(&self.version)
     }
 
     /// 从region.dat搜索数据
-    pub fn search_with_data(&mut self, region_code: &str) -> Result<RegionItem> {
+    pub fn search_with_data(&mut self, region_code: &str) -> Result<RegionItem, RegionError> {
         if region_code.len() != 6 {
-            return Err(anyhow!("region_code's length must be 6"));
+            return Err(RegionError::Message(
+                "region_code's length must be 6".to_string(),
+            ));
         }
-        let mut file = File::open(&self.file_path)?;
-        file.seek(std::io::SeekFrom::Start(4))?;
-        let mut index_offset: [u8; 3] = [0; 3];
-        file.read_exact(&mut index_offset)?;
+        let mut file = File::open(&self.file_path).map_err(RegionError::IOError)?;
+        file.seek(std::io::SeekFrom::Start(4))
+            .map_err(RegionError::IOError)?;
+        let mut index_offset: [u8; 2] = [0; 2];
+        file.read_exact(&mut index_offset)
+            .map_err(RegionError::IOError)?;
         self.offset_index = be_u8_slice_to_i32(&index_offset);
+        // 读取字符集
+        let mut chars = String::new();
+        file.seek(std::io::SeekFrom::Start(
+            (self.offset_index + 34 * 3) as u64,
+        ))
+        .map_err(RegionError::IOError)?;
+        let _ = file
+            .read_to_string(&mut chars)
+            .map_err(RegionError::IOError)?;
+        let mut char_map = HashMap::new();
+        for (i, c) in chars.chars().enumerate() {
+            char_map.insert(i + 64, c);
+        }
         // 查找索引区
-        file.seek(std::io::SeekFrom::Start(self.offset_index as u64))?;
+        file.seek(std::io::SeekFrom::Start(self.offset_index as u64))
+            .map_err(RegionError::IOError)?;
         let mut region_code_offset: [u8; 3] = [0u8; 3];
-        let region_code_int: i32 = region_code.parse()?;
+        let region_code_int: i32 = region_code.parse().map_err(RegionError::ParseError)?;
         let mut offset = 0;
-        for _ in 0..50 {
-            let amount = file.read(&mut region_code_offset)?;
+        for _ in 0..34 {
+            let amount = file
+                .read(&mut region_code_offset)
+                .map_err(RegionError::IOError)?;
             if amount == 0 {
                 break;
             }
@@ -149,11 +201,14 @@ impl Region {
             }
         }
         if offset == 0 {
-            return Err(anyhow!("cannot find record"));
+            return Err(RegionError::Message("cannot find record".to_string()));
         }
-        file.seek(std::io::SeekFrom::Start(offset as u64))?;
-        let mut province_record: [u8; 6000] = [0u8; 6000];
-        let _ = file.read(&mut province_record)?;
+        file.seek(std::io::SeekFrom::Start(offset as u64))
+            .map_err(RegionError::IOError)?;
+        let mut province_record: [u8; 4000] = [0u8; 4000];
+        let _ = file
+            .read(&mut province_record)
+            .map_err(RegionError::IOError)?;
         let search_codes = [
             format!("{}0000", &region_code[..2]),
             format!("{}00", &region_code[..4]),
@@ -162,35 +217,38 @@ impl Region {
         let mut region_slice = Vec::new();
         let mut offset = 0;
         let mut discard_year = 0;
-        while offset < 6000 {
-            let region_data = be_u8_slice_to_i32(&province_record[offset..(3 + offset)]);
-            let region = region_data >> 4;
+        while offset < 4000 {
+            let size = be_u8_slice_to_i32(&province_record[offset..1 + offset]);
+            let region_code_type = be_u8_slice_to_i32(&province_record[1 + offset..4 + offset]);
+            let region = region_code_type >> 4;
+            // 已经到别的省份
             if region / 10000 != region_code_int / 10000 {
                 break;
             }
-            // let region_type = region_data - (region << 4);
-            let region_type = region_data % region;
-            let size = province_record[3 + offset];
+            let region_type = region_code_type % region;
             if search_codes.contains(&region.to_string()) {
-                let name_bytes: Vec<u8> = province_record
+                let record_bytes: Vec<u8> = province_record
                     .iter()
                     .skip(4 + offset)
-                    .take(size as usize)
+                    .take((size - 4) as usize)
                     .copied()
                     .collect();
-                let mut name = String::from_utf8(name_bytes)?;
-                let discard_year_int = name.chars().last().unwrap() as u32;
-                if discard_year_int < 256 {
+                let (name_char_index_list, discard_year_int) = decode_u8_list(&record_bytes);
+                let mut name_chars = Vec::new();
+                for i in name_char_index_list {
+                    name_chars.push(*char_map.get(&(i as usize)).unwrap());
+                }
+                let mut name = String::from_iter(name_chars);
+                if discard_year_int > 0 && region.to_string() == region_code {
                     discard_year = discard_year_int + 1980;
-                    name = name[..name.len() - 1].to_string();
                 }
                 name = format!("{name}{}", self.get_type_name(region_type));
                 region_slice.push(name);
             }
-            offset += (4 + size) as usize;
+            offset += size as usize;
         }
         if region_slice.is_empty() {
-            return Err(anyhow!("cannot find record"));
+            return Err(RegionError::Message("cannot find record".to_string()));
         }
         Ok(RegionItem {
             region_code: region_code.to_string(),
@@ -208,7 +266,7 @@ mod tests {
     #[test]
     fn test_region() {
         let mut region = Region::new(PathBuf::from("data/region_full.dat"));
-        assert_eq!(region.get_version().unwrap(), "2024092612");
+        assert_eq!(region.get_version().unwrap(), "2024092820");
         let result = region.search_with_data("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
         assert_eq!(
