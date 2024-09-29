@@ -54,33 +54,20 @@ impl Region {
         }
     }
 
-    /// 获取区域类型名称
-    pub fn get_type_name(&self, t: i32) -> String {
-        match t {
-            1 => String::from("省"),
-            2 => String::from("自治区"),
-            3 => String::from("市"),
-            4 => String::from("区"),
-            5 => String::from("县"),
-            6 => String::from("自治县"),
-            7 => String::from("旗"),
-            8 => String::from("盟"),
-            9 => String::from("州"),
-            10 => String::from("自治州"),
-            11 => String::from("藏族自治州"),
-            12 => String::from("满族自治县"),
-            13 => String::from("蒙古族自治县"),
-            14 => String::from("苗族自治县"),
-            15 => String::from("土家族自治县"),
-            _ => String::new(),
-        }
+    /// 构建前缀树
+    fn create_trier(&mut self) -> Result<RegionTrie, RegionError> {
+        let mut trier = RegionTrie::new();
+        self.get_record_from_data()?
+            .iter()
+            .for_each(|x| trier.insert(x.region_code.clone(), x.name.clone(), x.discard_year));
+        Ok(trier)
     }
 
-    /// 读取字符集
-    pub fn get_char_map(&self, file_ref: &mut File) -> Result<(), RegionError> {
+    /// 设置字符集map
+    fn set_char_map(&self, file_ref: &mut File) -> Result<(), RegionError> {
         let mut char_map_ref = self.char_map.borrow_mut();
         if char_map_ref.is_empty() {
-            // 读取字符集
+            // 字符集
             file_ref
                 .seek(std::io::SeekFrom::Start(self.offset_index + 34 * 3))
                 .map_err(RegionError::IOError)?;
@@ -118,7 +105,7 @@ impl Region {
         }
         let mut record = vec![0u8; (self.offset_index - 6) as usize];
         file.read_exact(&mut record).map_err(RegionError::IOError)?;
-        self.get_char_map(&mut file)?;
+        self.set_char_map(&mut file)?;
         let char_map = self.char_map.borrow();
         let mut res = Vec::new();
         while !record.is_empty() {
@@ -154,31 +141,26 @@ impl Region {
         Ok(res)
     }
 
-    /// 构建前缀树
-    fn create_trier(&mut self) -> Result<RegionTrie, RegionError> {
-        let mut trier = RegionTrie::new();
-        self.get_record_from_data()?
-            .iter()
-            .for_each(|x| trier.insert(x.region_code.clone(), x.name.clone(), x.discard_year));
-        Ok(trier)
-    }
-
-    /// 通过前缀树来搜索结果
-    pub fn search_with_trie(&mut self, region_code: &str) -> Result<RegionItem, RegionError> {
-        if region_code.len() != 6 {
-            return Err(RegionError::Message(
-                "region_code's length must be 6".to_string(),
-            ));
+    /// 获取区域类型名称
+    pub fn get_type_name(&self, t: i32) -> String {
+        match t {
+            1 => String::from("省"),
+            2 => String::from("自治区"),
+            3 => String::from("市"),
+            4 => String::from("区"),
+            5 => String::from("县"),
+            6 => String::from("自治县"),
+            7 => String::from("旗"),
+            8 => String::from("盟"),
+            9 => String::from("州"),
+            10 => String::from("自治州"),
+            11 => String::from("藏族自治州"),
+            12 => String::from("满族自治县"),
+            13 => String::from("蒙古族自治县"),
+            14 => String::from("苗族自治县"),
+            15 => String::from("土家族自治县"),
+            _ => String::new(),
         }
-        if self.region_trier.is_none() {
-            let trier = self.create_trier().unwrap();
-            self.region_trier = Some(Rc::new(RefCell::new(trier)));
-        }
-        self.region_trier
-            .clone()
-            .unwrap()
-            .borrow()
-            .search(region_code)
     }
 
     /// 获取数据版本号
@@ -210,8 +192,8 @@ impl Region {
                 .map_err(RegionError::IOError)?;
             self.offset_index = be_u8_slice_to_i32(&index_offset) as u64;
         }
-        // 读取字符集
-        self.get_char_map(&mut file)?;
+        // 字符集
+        self.set_char_map(&mut file)?;
         // 查找索引区
         file.seek(std::io::SeekFrom::Start(self.offset_index))
             .map_err(RegionError::IOError)?;
@@ -287,6 +269,24 @@ impl Region {
             region_slice,
             discard_year,
         })
+    }
+
+    /// 通过前缀树来搜索结果
+    pub fn search_with_trie(&mut self, region_code: &str) -> Result<RegionItem, RegionError> {
+        if region_code.len() != 6 {
+            return Err(RegionError::Message(
+                "region_code's length must be 6".to_string(),
+            ));
+        }
+        if self.region_trier.is_none() {
+            let trier = self.create_trier().unwrap();
+            self.region_trier = Some(Rc::new(RefCell::new(trier)));
+        }
+        self.region_trier
+            .clone()
+            .unwrap()
+            .borrow()
+            .search(region_code)
     }
 }
 
