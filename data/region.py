@@ -102,7 +102,7 @@ class RegionCtr:
             f.write(version.to_bytes(length=4))
             # 先跳过偏移
             f.seek(6)
-            # 写数据, code [i:3] type [i: 1] region [c: n] \n
+            # 写数据
             index_offset = 6
             offset_map: dict[int, int] = {}
             chars = set()
@@ -239,7 +239,6 @@ class RegionCtr:
         if len(region_code) != 6:
             raise ValueError('地区编码必须为6位')
         with open(self.file_name, 'rb') as f:
-            # version = int.from_bytes(f.read(4), byteorder="big")
             # 跳过版本号
             f.seek(4)
             index_offset = int.from_bytes(f.read(2), byteorder='big')
@@ -247,6 +246,7 @@ class RegionCtr:
             code_2 = int(region_code[:2])
             f.seek(index_offset)
             offset = 0
+            # 由于省份是固定的，可对34个省份的偏移生成一个映射表
             for _ in range(0, 34):
                 combine_bytes = f.read(3)
                 if not combine_bytes:
