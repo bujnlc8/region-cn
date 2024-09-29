@@ -17,10 +17,11 @@ use crate::{be_u8_slice_to_i32, decode_u8_list, trie::RegionTrie, RegionError, R
 pub struct Region {
     file_path: PathBuf,
     version: String,
-    offset_index: i32,
+    offset_index: u64,
     region_trier: Option<Rc<RefCell<RegionTrie>>>,
     char_map: Rc<RefCell<HashMap<usize, char>>>,
     file: Rc<RefCell<File>>,
+    index_offset_map: HashMap<i32, u64>,
 }
 
 impl Default for RegionTrie {
@@ -29,9 +30,19 @@ impl Default for RegionTrie {
     }
 }
 
+// 省份前2位
+const PROVINCE_CODES: [i32; 34] = [
+    11, 12, 13, 14, 15, 21, 22, 23, 31, 32, 33, 34, 35, 36, 37, 41, 42, 43, 44, 45, 46, 50, 51, 52,
+    53, 54, 61, 62, 63, 64, 65, 71, 81, 82,
+];
+
 impl Region {
     pub fn new(file_path: PathBuf) -> Self {
         let file = File::open(&file_path).unwrap();
+        let mut index_offset_map = HashMap::new();
+        for (i, v) in PROVINCE_CODES.iter().enumerate() {
+            index_offset_map.insert(*v, (i * 3) as u64);
+        }
         Self {
             file_path,
             version: String::new(),
@@ -39,6 +50,7 @@ impl Region {
             region_trier: None,
             char_map: Rc::new(RefCell::new(HashMap::new())),
             file: Rc::new(RefCell::new(file)),
+            index_offset_map,
         }
     }
 
@@ -70,9 +82,7 @@ impl Region {
         if char_map_ref.is_empty() {
             // 读取字符集
             file_ref
-                .seek(std::io::SeekFrom::Start(
-                    (self.offset_index + 34 * 3) as u64,
-                ))
+                .seek(std::io::SeekFrom::Start(self.offset_index + 34 * 3))
                 .map_err(RegionError::IOError)?;
             // gbk编码
             let mut char_bytes = Vec::new();
@@ -101,7 +111,7 @@ impl Region {
             let mut index_offset: [u8; 2] = [0; 2];
             file.read_exact(&mut index_offset)
                 .map_err(RegionError::IOError)?;
-            self.offset_index = be_u8_slice_to_i32(&index_offset);
+            self.offset_index = be_u8_slice_to_i32(&index_offset) as u64;
         } else {
             file.seek(std::io::SeekFrom::Start(6))
                 .map_err(RegionError::IOError)?;
@@ -198,34 +208,31 @@ impl Region {
             let mut index_offset: [u8; 2] = [0; 2];
             file.read_exact(&mut index_offset)
                 .map_err(RegionError::IOError)?;
-            self.offset_index = be_u8_slice_to_i32(&index_offset);
+            self.offset_index = be_u8_slice_to_i32(&index_offset) as u64;
         }
         // 读取字符集
         self.get_char_map(&mut file)?;
         // 查找索引区
-        file.seek(std::io::SeekFrom::Start(self.offset_index as u64))
+        file.seek(std::io::SeekFrom::Start(self.offset_index))
             .map_err(RegionError::IOError)?;
         let mut region_code_offset: [u8; 3] = [0u8; 3];
         let region_code_int: i32 = region_code.parse().map_err(RegionError::ParseError)?;
-        let mut offset = 0;
-        for _ in 0..34 {
-            let amount = file
-                .read(&mut region_code_offset)
-                .map_err(RegionError::IOError)?;
-            if amount == 0 {
-                break;
+        // region_code 前2位
+        let code_2_int = region_code_int / 10000;
+        match self.index_offset_map.get(&code_2_int) {
+            Some(v) => {
+                file.seek(std::io::SeekFrom::Start(self.offset_index + (*v)))
+                    .map_err(RegionError::IOError)?;
             }
-            // 高7位表示code的前2位，后17位表示偏移
-            let combine = be_u8_slice_to_i32(&region_code_offset);
-            let code_2 = combine >> 17;
-            if code_2 == region_code_int / 10000 {
-                offset = combine - (code_2 << 17);
-                break;
+            None => {
+                return Err(RegionError::Message("cannot find record".to_string()));
             }
         }
-        if offset == 0 {
-            return Err(RegionError::Message("cannot find record".to_string()));
-        }
+        let _ = file
+            .read(&mut region_code_offset)
+            .map_err(RegionError::IOError)?;
+        let combine = be_u8_slice_to_i32(&region_code_offset);
+        let offset = combine - (code_2_int << 17);
         file.seek(std::io::SeekFrom::Start(offset as u64))
             .map_err(RegionError::IOError)?;
         let mut province_record: [u8; 4000] = [0u8; 4000];

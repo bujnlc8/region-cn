@@ -47,4 +47,20 @@ pub fn main() {
             assert_eq!(result.discard_year, discard_year.parse::<u32>().unwrap());
         }
     }
+    // 测试最新数据
+    let mut origin_file = File::open(PathBuf::from("data/region.txt")).unwrap();
+    let mut file_string = String::new();
+    origin_file.read_to_string(&mut file_string).unwrap();
+    let mut searcher = Region::new(PathBuf::from("data/region.dat"));
+    let json_data: Value = serde_json::from_str(&file_string).unwrap();
+    for x in json_data.as_array().unwrap() {
+        let code = x.get(0).unwrap().as_str().unwrap();
+        let region_name = x.get(1).unwrap().as_str().unwrap().replace("*", "");
+        let result = searcher.search_with_trie(code).unwrap();
+        println!("{code} {region_name} => {}", result.name);
+        assert!(result.name.ends_with(&region_name));
+        let result = searcher.search_with_data(code).unwrap();
+        println!("{code} {region_name} => {}", result.name);
+        assert!(result.name.ends_with(&region_name));
+    }
 }
