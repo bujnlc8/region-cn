@@ -13,7 +13,13 @@ class RegionType(Enum):
     qi = 7  # 旗
     meng = 8  # 盟
     z_city = 9  # 州
-    other = 10  # 其他
+    zz_city = 10  # 自治州
+    zang_zz_city = 11  # 藏族自治州
+    man_zz_county = 12  # 满族自治县
+    menggu_zz_county = 13  # 蒙古族自治县
+    miao_zz_county = 14  # 苗族自治县
+    tu_zz_county = 15  # 土家族自治县
+    other = 0  # 其他
 
     @property
     def label(self) -> str:
@@ -35,14 +41,38 @@ class RegionType(Enum):
             return '盟'
         elif self == RegionType.z_city:
             return '州'
+        elif self == RegionType.zz_city:
+            return '自治州'
+        elif self == RegionType.tu_zz_county:
+            return '土家族自治县'
+        elif self == RegionType.man_zz_county:
+            return '苗族自治县'
+        elif self == RegionType.menggu_zz_county:
+            return '蒙古族自治县'
+        elif self == RegionType.man_zz_county:
+            return '满族自治县'
+        elif self == RegionType.zang_zz_city:
+            return '藏族自治州'
         return ''
 
     @staticmethod
     def name_classifiction(name: str) -> tuple[str, 'RegionType']:
-        if name.endswith('自治区'):
+        if name.endswith('土家族自治县'):
+            return name[:-6], RegionType.tu_zz_county
+        elif name.endswith('苗族自治县'):
+            return name[:-5], RegionType.miao_zz_county
+        elif name.endswith('蒙古族自治县'):
+            return name[:-6], RegionType.menggu_zz_county
+        elif name.endswith('满族自治县'):
+            return name[:-5], RegionType.man_zz_county
+        elif name.endswith('藏族自治州'):
+            return name[:-5], RegionType.zang_zz_city
+        elif name.endswith('自治区'):
             return name[:-3], RegionType.z_province
         elif name.endswith('自治县'):
             return name[:-3], RegionType.z_county
+        elif name.endswith('自治州'):
+            return name[:-3], RegionType.zz_city
         elif name.endswith('省'):
             return name[:-1], RegionType.province
         elif name.endswith('市'):
@@ -77,7 +107,8 @@ class RegionCtr:
             offset_map: dict[int, int] = {}
             chars = set()
             for x in data_list:
-                for c in x[1]:
+                name, _ = RegionType.name_classifiction(x[1].replace('*', ''))
+                for c in name:
                     chars.add(c)
             char_list: list[str] = list(chars)
             # 字符映射
@@ -183,7 +214,7 @@ class RegionCtr:
                 f.write(combine.to_bytes(3))
             # 写字符
             for char in char_list:
-                f.write(char.encode())
+                f.write(char.encode('gbk'))
         return True
 
     def decode_u8_list(self, u8_list: list[int]) -> tuple[list[int], int]:
@@ -230,7 +261,7 @@ class RegionCtr:
             # 找到字符区
             f.seek(index_offset + 34 * 3)
             char_bytes = f.read()
-            chars = char_bytes.decode()
+            chars = char_bytes.decode('gbk')
             char_map = {}
             for i, c in enumerate(chars):
                 char_map[64 + i] = c
