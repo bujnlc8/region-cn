@@ -32,7 +32,7 @@ pub fn main() {
         let discard_year = x.get(2).unwrap().as_str().unwrap();
         let result = searcher.search_with_trie(code).unwrap();
         println!("{code} {region_name} => {}", result.name);
-        assert!(result.name.contains(&region_name));
+        assert!(result.name.ends_with(&region_name));
         if discard_year.is_empty() {
             assert_eq!(result.discard_year, 0);
         } else {
@@ -40,7 +40,7 @@ pub fn main() {
         }
         let result = searcher.search_with_data(code).unwrap();
         println!("{code} {region_name} => {}", result.name);
-        assert!(result.name.contains(&region_name));
+        assert!(result.name.ends_with(&region_name));
         if discard_year.is_empty() {
             assert_eq!(result.discard_year, 0);
         } else {

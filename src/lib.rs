@@ -100,7 +100,7 @@ impl fmt::Display for RegionError {
         match self {
             RegionError::IOError(err) => write!(f, "IOError: {}", err),
             RegionError::ParseError(err) => write!(f, "ParseError: {}", err),
-            RegionError::Message(msg) => write!(f, "Message: {}", msg),
+            RegionError::Message(msg) => write!(f, "Error: {}", msg),
         }
     }
 }

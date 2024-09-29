@@ -1,11 +1,15 @@
 //! Region search implement
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     fs::File,
     io::{Read, Seek},
     path::PathBuf,
+    rc::Rc,
 };
+
+use encoding::{all::GBK, Encoding};
 
 use crate::{be_u8_slice_to_i32, decode_u8_list, trie::RegionTrie, RegionError, RegionItem};
 
@@ -14,7 +18,9 @@ pub struct Region {
     file_path: PathBuf,
     version: String,
     offset_index: i32,
-    region_trier: Option<RegionTrie>,
+    region_trier: Option<Rc<RefCell<RegionTrie>>>,
+    char_map: Rc<RefCell<HashMap<usize, char>>>,
+    file: Rc<RefCell<File>>,
 }
 
 impl Default for RegionTrie {
@@ -25,11 +31,14 @@ impl Default for RegionTrie {
 
 impl Region {
     pub fn new(file_path: PathBuf) -> Self {
+        let file = File::open(&file_path).unwrap();
         Self {
             file_path,
             version: String::new(),
             offset_index: 0,
             region_trier: None,
+            char_map: Rc::new(RefCell::new(HashMap::new())),
+            file: Rc::new(RefCell::new(file)),
         }
     }
 
@@ -45,43 +54,62 @@ impl Region {
             7 => String::from("旗"),
             8 => String::from("盟"),
             9 => String::from("州"),
-            10 => String::new(),
+            10 => String::from("自治州"),
+            11 => String::from("藏族自治州"),
+            12 => String::from("满族自治县"),
+            13 => String::from("蒙古族自治县"),
+            14 => String::from("苗族自治县"),
+            15 => String::from("土家族自治县"),
             _ => String::new(),
         }
     }
 
-    /// 从 region.dat读取数据记录
-    fn get_record_from_data(&mut self) -> Result<Vec<RegionItem>, RegionError> {
-        let mut file = File::open(&self.file_path).map_err(RegionError::IOError)?;
-        // 跳过版本号
-        file.seek(std::io::SeekFrom::Start(4))
-            .map_err(RegionError::IOError)?;
-        let mut index_offset: [u8; 2] = [0; 2];
-        file.read_exact(&mut index_offset)
-            .map_err(RegionError::IOError)?;
-
-        self.offset_index = be_u8_slice_to_i32(&index_offset);
-        // 读取字符集
-        let mut chars = String::new();
-        file.seek(std::io::SeekFrom::Start(
-            (self.offset_index + 34 * 3) as u64,
-        ))
-        .map_err(RegionError::IOError)?;
-
-        let _ = file
-            .read_to_string(&mut chars)
-            .map_err(RegionError::IOError)?;
-
-        let mut char_map = HashMap::new();
-        for (i, c) in chars.chars().enumerate() {
-            char_map.insert(i + 64, c);
+    /// 读取字符集
+    pub fn get_char_map(&self, file_ref: &mut File) -> Result<(), RegionError> {
+        let mut char_map_ref = self.char_map.borrow_mut();
+        if char_map_ref.is_empty() {
+            // 读取字符集
+            file_ref
+                .seek(std::io::SeekFrom::Start(
+                    (self.offset_index + 34 * 3) as u64,
+                ))
+                .map_err(RegionError::IOError)?;
+            // gbk编码
+            let mut char_bytes = Vec::new();
+            file_ref
+                .read_to_end(&mut char_bytes)
+                .map_err(RegionError::IOError)?;
+            let chars = GBK
+                .decode(&char_bytes, encoding::DecoderTrap::Strict)
+                .map_err(|x| RegionError::Message(x.to_string()))?;
+            let mut char_map = HashMap::new();
+            for (i, c) in chars.chars().enumerate() {
+                char_map.insert(i + 64, c);
+            }
+            *char_map_ref = char_map;
         }
-        file.seek(std::io::SeekFrom::Start(6))
-            .map_err(RegionError::IOError)?;
+        Ok(())
+    }
 
+    /// 从 region.dat读取数据记录
+    pub fn get_record_from_data(&mut self) -> Result<Vec<RegionItem>, RegionError> {
+        let mut file = self.file.borrow_mut();
+        // 跳过版本号
+        if self.offset_index == 0 {
+            file.seek(std::io::SeekFrom::Start(4))
+                .map_err(RegionError::IOError)?;
+            let mut index_offset: [u8; 2] = [0; 2];
+            file.read_exact(&mut index_offset)
+                .map_err(RegionError::IOError)?;
+            self.offset_index = be_u8_slice_to_i32(&index_offset);
+        } else {
+            file.seek(std::io::SeekFrom::Start(6))
+                .map_err(RegionError::IOError)?;
+        }
         let mut record = vec![0u8; (self.offset_index - 6) as usize];
         file.read_exact(&mut record).map_err(RegionError::IOError)?;
-
+        self.get_char_map(&mut file)?;
+        let char_map = self.char_map.borrow();
         let mut res = Vec::new();
         while !record.is_empty() {
             let size = be_u8_slice_to_i32(&record[..1]);
@@ -134,9 +162,13 @@ impl Region {
         }
         if self.region_trier.is_none() {
             let trier = self.create_trier().unwrap();
-            self.region_trier = Some(trier);
+            self.region_trier = Some(Rc::new(RefCell::new(trier)));
         }
-        self.region_trier.clone().unwrap().search(region_code)
+        self.region_trier
+            .clone()
+            .unwrap()
+            .borrow()
+            .search(region_code)
     }
 
     /// 获取数据版本号
@@ -154,31 +186,22 @@ impl Region {
 
     /// 从region.dat搜索数据
     pub fn search_with_data(&mut self, region_code: &str) -> Result<RegionItem, RegionError> {
+        let mut file = self.file.borrow_mut();
         if region_code.len() != 6 {
             return Err(RegionError::Message(
                 "region_code's length must be 6".to_string(),
             ));
         }
-        let mut file = File::open(&self.file_path).map_err(RegionError::IOError)?;
-        file.seek(std::io::SeekFrom::Start(4))
-            .map_err(RegionError::IOError)?;
-        let mut index_offset: [u8; 2] = [0; 2];
-        file.read_exact(&mut index_offset)
-            .map_err(RegionError::IOError)?;
-        self.offset_index = be_u8_slice_to_i32(&index_offset);
-        // 读取字符集
-        let mut chars = String::new();
-        file.seek(std::io::SeekFrom::Start(
-            (self.offset_index + 34 * 3) as u64,
-        ))
-        .map_err(RegionError::IOError)?;
-        let _ = file
-            .read_to_string(&mut chars)
-            .map_err(RegionError::IOError)?;
-        let mut char_map = HashMap::new();
-        for (i, c) in chars.chars().enumerate() {
-            char_map.insert(i + 64, c);
+        if self.offset_index == 0 {
+            file.seek(std::io::SeekFrom::Start(4))
+                .map_err(RegionError::IOError)?;
+            let mut index_offset: [u8; 2] = [0; 2];
+            file.read_exact(&mut index_offset)
+                .map_err(RegionError::IOError)?;
+            self.offset_index = be_u8_slice_to_i32(&index_offset);
         }
+        // 读取字符集
+        self.get_char_map(&mut file)?;
         // 查找索引区
         file.seek(std::io::SeekFrom::Start(self.offset_index as u64))
             .map_err(RegionError::IOError)?;
@@ -217,6 +240,7 @@ impl Region {
         let mut region_slice = Vec::new();
         let mut offset = 0;
         let mut discard_year = 0;
+        let char_map = self.char_map.borrow();
         while offset < 4000 {
             let size = be_u8_slice_to_i32(&province_record[offset..1 + offset]);
             let region_code_type = be_u8_slice_to_i32(&province_record[1 + offset..4 + offset]);
@@ -236,7 +260,7 @@ impl Region {
                 let (name_char_index_list, discard_year_int) = decode_u8_list(&record_bytes);
                 let mut name_chars = Vec::new();
                 for i in name_char_index_list {
-                    name_chars.push(*char_map.get(&(i as usize)).unwrap());
+                    name_chars.push(char_map.get(&(i as usize)).unwrap());
                 }
                 let mut name = String::from_iter(name_chars);
                 if discard_year_int > 0 && region.to_string() == region_code {
@@ -266,7 +290,7 @@ mod tests {
     #[test]
     fn test_region() {
         let mut region = Region::new(PathBuf::from("data/region_full.dat"));
-        assert_eq!(region.get_version().unwrap(), "2024092820");
+        assert_eq!(region.get_version().unwrap(), "2024092911");
         let result = region.search_with_data("530925").unwrap();
         assert_eq!(result.name, "云南省临沧市双江拉祜族佤族布朗族傣族自治县");
         assert_eq!(
